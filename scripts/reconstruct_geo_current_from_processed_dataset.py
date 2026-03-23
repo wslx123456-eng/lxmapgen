@@ -164,6 +164,35 @@ def annotate_patch_endpoint_order_labels(lines: List[Dict]) -> List[Dict]:
     return out
 
 
+def _extract_line_identifier(row: Dict, fallback_rank: int) -> str:
+    for key in ("line_id", "segment_id", "source_line_id", "source_segment_id", "id"):
+        value = row.get(key)
+        if value is None:
+            continue
+        value_str = str(value).strip()
+        if value_str:
+            return value_str
+    return str(int(fallback_rank))
+
+
+def annotate_patch_line_labels(lines: List[Dict]) -> List[Dict]:
+    out: List[Dict] = []
+    next_rank = 1
+    for row in lines:
+        copied = dict(row)
+        out.append(copied)
+        if str(copied.get("geometry_type", "line")) == "polygon":
+            continue
+        local_points = copied.get("local_points", copied.get("points", []))
+        if not isinstance(local_points, list) or len(local_points) < 2:
+            continue
+        line_id = _extract_line_identifier(copied, fallback_rank=next_rank)
+        copied["line_id"] = line_id
+        copied["line_label"] = line_id
+        next_rank += 1
+    return out
+
+
 def _line_color(category: str) -> Tuple[int, int, int]:
     if str(category) == "intersection_polygon":
         return (255, 180, 0)
@@ -322,11 +351,40 @@ def _draw_direction_arrow(draw: ImageDraw.ImageDraw, xy: List[Tuple[int, int]], 
     draw.polygon([arrow_tip, wing1, wing2], fill=color)
 
 
+def _polyline_label_anchor(xy: List[Tuple[int, int]]) -> Tuple[float, float]:
+    if not xy:
+        return (0.0, 0.0)
+    if len(xy) == 1:
+        return (float(xy[0][0]), float(xy[0][1]))
+    seg_lengths: List[float] = []
+    total = 0.0
+    for idx in range(len(xy) - 1):
+        length = _distance_xy(xy[idx], xy[idx + 1])
+        seg_lengths.append(length)
+        total += length
+    if total <= 1e-6:
+        mid = xy[len(xy) // 2]
+        return (float(mid[0]), float(mid[1]))
+    target = total * 0.5
+    accum = 0.0
+    for idx, length in enumerate(seg_lengths):
+        next_accum = accum + length
+        if target <= next_accum and length > 1e-6:
+            ratio = (target - accum) / length
+            x = float(xy[idx][0]) + ratio * (float(xy[idx + 1][0]) - float(xy[idx][0]))
+            y = float(xy[idx][1]) + ratio * (float(xy[idx + 1][1]) - float(xy[idx][1]))
+            return (x, y)
+        accum = next_accum
+    last = xy[-1]
+    return (float(last[0]), float(last[1]))
+
+
 def build_overlay_image(
     canvas: np.ndarray,
     visual_lines: List[Dict],
     color_mode: str = "category",
     keep_boxes: List[Dict] | None = None,
+    label_mode: str = "endpoint",
 ) -> Image.Image:
     image = Image.fromarray(canvas, mode="RGB")
     draw = ImageDraw.Draw(image)
@@ -396,20 +454,31 @@ def build_overlay_image(
             fill=_endpoint_color(end_type),
             outline=(0, 0, 0),
         )
-        start_label = str(row.get("start_label", start_type))
-        end_label = str(row.get("end_label", end_type))
-        draw.text(
-            (float(start_display[0]) + 6, float(start_display[1]) - 10),
-            start_label,
-            fill=_endpoint_color(start_type),
-            font=font,
-        )
-        draw.text(
-            (float(end_display[0]) + 6, float(end_display[1]) - 10),
-            end_label,
-            fill=_endpoint_color(end_type),
-            font=font,
-        )
+        if str(label_mode).strip().lower() == "line":
+            line_label = str(row.get("line_label", row.get("line_id", ""))).strip()
+            if line_label:
+                label_anchor = _polyline_label_anchor(xy)
+                draw.text(
+                    (float(label_anchor[0]) + 6, float(label_anchor[1]) - 10),
+                    line_label,
+                    fill=color,
+                    font=font,
+                )
+        else:
+            start_label = str(row.get("start_label", start_type))
+            end_label = str(row.get("end_label", end_type))
+            draw.text(
+                (float(start_display[0]) + 6, float(start_display[1]) - 10),
+                start_label,
+                fill=_endpoint_color(start_type),
+                font=font,
+            )
+            draw.text(
+                (float(end_display[0]) + 6, float(end_display[1]) - 10),
+                end_label,
+                fill=_endpoint_color(end_type),
+                font=font,
+            )
     return image
 
 

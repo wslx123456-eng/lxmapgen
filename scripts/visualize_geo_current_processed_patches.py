@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from reconstruct_geo_current_from_processed_dataset import (
-    annotate_patch_endpoint_order_labels,
+    annotate_patch_line_labels,
     build_overlay_image,
     ensure_dir,
     infer_source_sample_id,
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
 
 def _build_visual_lines(lines: List[Dict], kind: str) -> List[Dict]:
     out: List[Dict] = []
-    for line in lines:
+    for line_idx, line in enumerate(lines, start=1):
         points = line.get("points", [])
         if not isinstance(points, list) or len(points) < 2:
             continue
@@ -47,9 +47,10 @@ def _build_visual_lines(lines: List[Dict], kind: str) -> List[Dict]:
                 "points": local_points,
                 "local_points": local_points,
                 "viz_kind": str(kind),
+                "line_id": str(line.get("line_id", line_idx)),
             }
         )
-    return annotate_patch_endpoint_order_labels(out)
+    return annotate_patch_line_labels(out)
 
 
 def main() -> None:
@@ -104,10 +105,6 @@ def main() -> None:
             if not quantized_source:
                 quantized_source = uv_lines_to_local(row.get("target_lines", []), patch=row)
             quantized_lines = _build_visual_lines(quantized_source, kind="quantized")
-            float_source = row.get("target_lines_float", [])
-            if not float_source:
-                float_source = uv_lines_to_local(row.get("target_lines", []), patch=row)
-            float_lines = _build_visual_lines(float_source, kind="float")
             crop_box = row.get("crop_box", {})
             keep_box = row.get("keep_box", {})
             keep_box_local = {
@@ -118,19 +115,14 @@ def main() -> None:
                 "label": "keep_box",
             }
 
-            patch_image.save(patch_dir / "patch.png")
-            build_overlay_image(canvas=patch_np, visual_lines=quantized_lines, keep_boxes=[keep_box_local]).save(
-                patch_dir / "overlay_quantized.png"
-            )
-            build_overlay_image(canvas=patch_np, visual_lines=float_lines, color_mode="compare", keep_boxes=[keep_box_local]).save(
-                patch_dir / "overlay_float.png"
-            )
             build_overlay_image(
                 canvas=patch_np,
-                visual_lines=[*float_lines, *quantized_lines],
-                color_mode="compare",
+                visual_lines=quantized_lines,
                 keep_boxes=[keep_box_local],
-            ).save(patch_dir / "overlay_compare.png")
+                label_mode="line",
+            ).save(
+                patch_dir / "overlay_quantized.png"
+            )
 
             patch_meta = {
                 "id": row_id,
@@ -141,8 +133,8 @@ def main() -> None:
                 "crop_box": crop_box,
                 "keep_box": keep_box,
                 "keep_box_local": keep_box_local,
-                "num_target_lines": int(len(row.get("target_lines", []))),
-                "num_target_lines_float": int(len(row.get("target_lines_float", []))),
+                "num_target_lines_raw": int(len(row.get("target_lines", []))),
+                "num_target_lines_quantized": int(len(quantized_lines)),
             }
             with (patch_dir / "patch_meta.json").open("w", encoding="utf-8") as f:
                 json.dump(patch_meta, f, ensure_ascii=False, indent=2)
@@ -151,10 +143,7 @@ def main() -> None:
                 {
                     "patch_id": patch_id,
                     "patch_dir": str(patch_dir),
-                    "patch_image": str(patch_dir / "patch.png"),
                     "overlay_quantized": str(patch_dir / "overlay_quantized.png"),
-                    "overlay_float": str(patch_dir / "overlay_float.png"),
-                    "overlay_compare": str(patch_dir / "overlay_compare.png"),
                     "patch_meta": str(patch_dir / "patch_meta.json"),
                 }
             )
