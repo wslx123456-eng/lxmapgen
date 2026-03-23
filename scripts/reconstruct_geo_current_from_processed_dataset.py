@@ -131,7 +131,7 @@ def _endpoint_label_prefix(endpoint_type: str) -> str:
 
 def annotate_patch_endpoint_order_labels(lines: List[Dict]) -> List[Dict]:
     out: List[Dict] = []
-    endpoint_groups: Dict[str, List[Dict]] = defaultdict(list)
+    line_refs: List[Dict] = []
     for line_idx, row in enumerate(lines):
         copied = dict(row)
         out.append(copied)
@@ -142,25 +142,25 @@ def annotate_patch_endpoint_order_labels(lines: List[Dict]) -> List[Dict]:
             continue
         start_type = str(copied.get("start_type", "")).strip() or "start"
         end_type = str(copied.get("end_type", "")).strip() or "end"
-        endpoint_groups[start_type].append(
+        start_point = local_points[0]
+        end_point = local_points[-1]
+        line_refs.append(
             {
                 "line_idx": int(line_idx),
-                "label_key": "start_label",
-                "point": local_points[0],
+                "start_type": start_type,
+                "end_type": end_type,
+                "sort_point": min(
+                    [start_point, end_point],
+                    key=_origin_sort_key,
+                ),
             }
         )
-        endpoint_groups[end_type].append(
-            {
-                "line_idx": int(line_idx),
-                "label_key": "end_label",
-                "point": local_points[-1],
-            }
-        )
-    for endpoint_type, refs in endpoint_groups.items():
-        ordered = sorted(refs, key=lambda item: _origin_sort_key(item["point"]))
-        for rank, ref in enumerate(ordered, start=1):
-            prefix = _endpoint_label_prefix(endpoint_type)
-            out[int(ref["line_idx"])][str(ref["label_key"])] = f"{prefix}{rank}"
+    ordered = sorted(line_refs, key=lambda item: _origin_sort_key(item["sort_point"]))
+    for rank, ref in enumerate(ordered, start=1):
+        start_prefix = _endpoint_label_prefix(str(ref["start_type"]))
+        end_prefix = _endpoint_label_prefix(str(ref["end_type"]))
+        out[int(ref["line_idx"])]["start_label"] = f"{start_prefix}{rank}"
+        out[int(ref["line_idx"])]["end_label"] = f"{end_prefix}{rank}"
     return out
 
 
