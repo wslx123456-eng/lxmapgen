@@ -1,0 +1,7 @@
+# Use one of the dedicated dependency files instead of this placeholder:
+#
+#   Dataset processing only:
+#     pip install -r requirements.data.txt
+#
+#   Training and rollout:
+#     pip install -r requirements.train.txt

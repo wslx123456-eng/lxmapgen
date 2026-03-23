@@ -1,0 +1,6 @@
+numpy<2
+scipy<1.14
+pillow
+pyyaml
+pyproj
+rasterio
