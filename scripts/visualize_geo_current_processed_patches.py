@@ -119,7 +119,6 @@ def main() -> None:
                 canvas=patch_np,
                 visual_lines=quantized_lines,
                 keep_boxes=[keep_box_local],
-                label_mode="line",
             ).save(
                 patch_dir / "overlay_quantized.png"
             )

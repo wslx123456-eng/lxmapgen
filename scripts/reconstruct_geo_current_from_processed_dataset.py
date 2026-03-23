@@ -177,8 +177,8 @@ def _extract_line_identifier(row: Dict, fallback_rank: int) -> str:
 
 def annotate_patch_line_labels(lines: List[Dict]) -> List[Dict]:
     out: List[Dict] = []
-    next_rank = 1
-    for row in lines:
+    line_refs: List[Dict] = []
+    for line_idx, row in enumerate(lines):
         copied = dict(row)
         out.append(copied)
         if str(copied.get("geometry_type", "line")) == "polygon":
@@ -186,10 +186,27 @@ def annotate_patch_line_labels(lines: List[Dict]) -> List[Dict]:
         local_points = copied.get("local_points", copied.get("points", []))
         if not isinstance(local_points, list) or len(local_points) < 2:
             continue
-        line_id = _extract_line_identifier(copied, fallback_rank=next_rank)
+        start_point = local_points[0]
+        end_point = local_points[-1]
+        line_refs.append(
+            {
+                "line_idx": int(line_idx),
+                "sort_point": min([start_point, end_point], key=_origin_sort_key),
+            }
+        )
+
+    ordered = sorted(line_refs, key=lambda item: _origin_sort_key(item["sort_point"]))
+    for rank, ref in enumerate(ordered, start=1):
+        copied = out[int(ref["line_idx"])]
+        line_id = str(int(rank))
         copied["line_id"] = line_id
         copied["line_label"] = line_id
-        next_rank += 1
+        start_type = str(copied.get("start_type", "")).strip() or "start"
+        end_type = str(copied.get("end_type", "")).strip() or "end"
+        start_prefix = _endpoint_label_prefix(start_type)
+        end_prefix = _endpoint_label_prefix(end_type)
+        copied["start_label"] = f"{start_prefix}{line_id}"
+        copied["end_label"] = f"{end_prefix}{line_id}"
     return out
 
 
