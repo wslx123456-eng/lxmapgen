@@ -53,6 +53,13 @@ def _build_visual_lines(lines: List[Dict], kind: str) -> List[Dict]:
     return annotate_patch_line_labels(out)
 
 
+def _build_patch_dir_name(row: Dict) -> str:
+    patch_id = int(row.get("patch_id", -1))
+    if row.get("grid_row") is not None and row.get("grid_col") is not None:
+        return f"p{patch_id:04d}_g{int(row.get('grid_row', 0))}{int(row.get('grid_col', 0))}"
+    return f"p{patch_id:04d}"
+
+
 def main() -> None:
     args = parse_args()
     processed_root = Path(args.processed_root).resolve()
@@ -81,7 +88,16 @@ def main() -> None:
     for sample_id in sample_ids:
         sample_out = output_root / sample_id
         ensure_dir(sample_out)
-        rows = sorted(grouped[sample_id], key=lambda item: (int(item.get("row", 0)), int(item.get("col", 0)), int(item.get("patch_id", 0))))
+        rows = sorted(
+            grouped[sample_id],
+            key=lambda item: (
+                int(item.get("row", 0)),
+                int(item.get("col", 0)),
+                int(item.get("patch_id", 0)),
+                int(item.get("grid_row", 0)),
+                int(item.get("grid_col", 0)),
+            ),
+        )
         if int(args.max_patches_per_sample) > 0:
             rows = rows[: int(args.max_patches_per_sample)]
 
@@ -98,7 +114,7 @@ def main() -> None:
             patch_image = Image.open(patch_path).convert("RGB")
             patch_np = np.asarray(patch_image, dtype=np.uint8)
             patch_id = int(row.get("patch_id", -1))
-            patch_dir = sample_out / f"p{patch_id:04d}"
+            patch_dir = sample_out / _build_patch_dir_name(row)
             ensure_dir(patch_dir)
 
             quantized_source = row.get("target_lines_quantized", [])
@@ -106,13 +122,17 @@ def main() -> None:
                 quantized_source = uv_lines_to_local(row.get("target_lines", []), patch=row)
             quantized_lines = _build_visual_lines(quantized_source, kind="quantized")
             crop_box = row.get("crop_box", {})
-            keep_box = row.get("keep_box", {})
+            box_name = "keep_box"
+            box = row.get("keep_box", {})
+            if row.get("target_box"):
+                box_name = "target_box"
+                box = row.get("target_box", {})
             keep_box_local = {
-                "x_min": float(keep_box.get("x_min", 0)) - float(crop_box.get("x_min", 0)),
-                "y_min": float(keep_box.get("y_min", 0)) - float(crop_box.get("y_min", 0)),
-                "x_max": float(keep_box.get("x_max", 0)) - float(crop_box.get("x_min", 0)),
-                "y_max": float(keep_box.get("y_max", 0)) - float(crop_box.get("y_min", 0)),
-                "label": "keep_box",
+                "x_min": float(box.get("x_min", 0)) - float(crop_box.get("x_min", 0)),
+                "y_min": float(box.get("y_min", 0)) - float(crop_box.get("y_min", 0)),
+                "x_max": float(box.get("x_max", 0)) - float(crop_box.get("x_min", 0)),
+                "y_max": float(box.get("y_max", 0)) - float(crop_box.get("y_min", 0)),
+                "label": box_name,
             }
 
             build_overlay_image(
@@ -129,8 +149,11 @@ def main() -> None:
                 "patch_id": patch_id,
                 "row": int(row.get("row", 0)),
                 "col": int(row.get("col", 0)),
+                "grid_row": row.get("grid_row"),
+                "grid_col": row.get("grid_col"),
                 "crop_box": crop_box,
-                "keep_box": keep_box,
+                "keep_box": row.get("keep_box", {}),
+                "target_box": row.get("target_box", {}),
                 "keep_box_local": keep_box_local,
                 "num_target_lines_raw": int(len(row.get("target_lines", []))),
                 "num_target_lines_quantized": int(len(quantized_lines)),
